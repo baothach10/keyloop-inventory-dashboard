@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js",
-    "build": "tsc -p tsconfig.build.json",
+    "start": "tsx src/server.ts",
+    "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "db:setup": "prisma db push --skip-generate && prisma generate && tsx prisma/seed.ts",
     "db:seed": "tsx prisma/seed.ts",
@@ -20,13 +20,13 @@
     "fastify": "^5.2.0",
     "fastify-type-provider-zod": "^4.0.2",
     "prom-client": "^15.1.3",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "tsx": "^4.19.2"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",
     "pino-pretty": "^13.0.0",
     "prisma": "5.22.0",
-    "tsx": "^4.19.2",
     "vitest": "^2.1.9"
   }
 }
