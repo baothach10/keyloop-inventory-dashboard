@@ -8,6 +8,7 @@
     "start": "tsx src/server.ts",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
+    "predb:setup": "node -e \"const f=require('fs');f.existsSync('.env')||f.copyFileSync('.env.example','.env')\"",
     "db:setup": "prisma db push --skip-generate && prisma generate && tsx prisma/seed.ts",
     "db:seed": "tsx prisma/seed.ts",
     "test": "vitest run"
