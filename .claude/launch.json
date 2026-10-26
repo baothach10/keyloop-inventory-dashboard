@@ -1,7 +1,0 @@
-{
-  "version": "0.0.1",
-  "configurations": [
-    { "name": "api", "runtimeExecutable": "sh", "runtimeArgs": ["-c", "PORT=3002 npm run dev -w @inventory/api"], "port": 3002 },
-    { "name": "web", "runtimeExecutable": "sh", "runtimeArgs": ["-c", "API_URL=http://localhost:3002 npm run dev -w @inventory/web"], "port": 5173 }
-  ]
-}

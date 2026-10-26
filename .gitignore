@@ -8,3 +8,6 @@ coverage/
 *.log
 # Challenge brief is kept locally, not part of the submission repo
 KeyloopCodingChallange.pdf
+# Local-only presentation material and machine-specific tooling config
+docs/VIDEO_SCRIPT.md
+.claude/
