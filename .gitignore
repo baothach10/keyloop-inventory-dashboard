@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+*.db
+*.db-journal
+.env
+.DS_Store
+*.log
+# Challenge brief is kept locally, not part of the submission repo
+KeyloopCodingChallange.pdf
