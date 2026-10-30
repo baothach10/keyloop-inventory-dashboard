@@ -11,3 +11,5 @@ KeyloopCodingChallange.pdf
 # Local-only presentation material and machine-specific tooling config
 docs/VIDEO_SCRIPT.md
 .claude/
+# Local-only presentation deck
+presentation/
