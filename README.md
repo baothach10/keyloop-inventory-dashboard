@@ -1,32 +1,37 @@
 # Intelligent Inventory Dashboard
 
-Keyloop technical assessment, **Scenario B (Supply)**. A dealership manager sees live vehicle stock, aging stock (> 90 days) is flagged automatically, and the manager can log and persist a status or proposed action for each aging vehicle.
+Keyloop technical assessment: **Scenario B, The Intelligent Inventory Dashboard (Supply)**.
 
-**Both layers are implemented**: a Fastify + Prisma REST API with a persistent SQLite database, and a React dashboard.
+A dealership manager gets a live view of vehicle stock. Vehicles in stock for more than 90 days are flagged automatically as **aging stock**, and the manager can log and persist a status or proposed action for each one (for example "Price Reduction Planned").
 
-- Design document: [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) (architecture diagram, components, data flow, tech choices, observability, GenAI usage)
-- Interactive API docs (when running): http://localhost:3001/docs
+Both layers are implemented: a REST API with a persistent database, and a web dashboard.
 
-## Features
-
-| Requirement | Where |
+| Deliverable | Location |
 |---|---|
-| Filterable inventory list (make, model, age, search; sort; pagination) | `GET /api/dealerships/:id/vehicles` · Filters bar + table |
-| Automatic aging-stock identification (> 90 days) | Derived on every read. Red KPI card, red age buckets, red rows and badges, "Aging stock only" toggle |
-| Log and persist an action per aging vehicle | `POST /api/vehicles/:id/actions` · "Manage" side panel with history |
+| System Design Document | [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) |
+| Working code and tests | this repository |
+| AI Collaboration Narrative | [below](#ai-collaboration-narrative) |
+
+## Requirements coverage
+
+| Requirement | Implementation |
+|---|---|
+| **1. Inventory visualization**: filterable list by make, model, age | `GET /api/dealerships/:id/vehicles` supports `make`, `model`, `minAge`, `maxAge`, `aging`, free-text `q`, sorting and pagination. The UI has a filter bar and a sortable, paged table. |
+| **2. Aging stock identification**: automatic, prominent, > 90 days | Age is derived from `stockedAt` on every read. The UI shows a red KPI card, a red age distribution, red rows with badges, and an "Aging stock only" toggle. |
+| **3. Actionable insights**: log and persist a status or action per aging vehicle | `POST /api/vehicles/:id/actions` writes to an append-only history table. The latest entry is the current status. The UI has a "Manage" panel with the full history. |
 
 ## Quick start
 
-Requires **Node 20+** and npm. No database server needed (SQLite file).
+Requires **Node 20+** and npm. No database server is needed (SQLite file).
 
 ```bash
-npm run setup     # installs deps, creates the SQLite DB, seeds 250 vehicles across 2 dealerships
-npm run dev       # API on :3001, web on :5173
+npm run setup     # install dependencies, create the SQLite DB, seed 250 vehicles across 2 dealerships
+npm run dev       # API on http://localhost:3001, web on http://localhost:5173
 ```
 
-Open http://localhost:5173.
+Open http://localhost:5173. Interactive API docs (OpenAPI/Swagger) are at http://localhost:3001/docs.
 
-If port 3001 is taken, run the API on another port and point the web proxy at it:
+If port 3001 is already in use, run the API on another port and point the web proxy at it:
 
 ```bash
 PORT=3002 npm run dev -w @inventory/api
@@ -36,95 +41,98 @@ API_URL=http://localhost:3002 npm run dev -w @inventory/web
 ### Test, typecheck, build
 
 ```bash
-npm test          # 57 tests: shared (15) + api (22) + web (20)
+npm test            # 57 tests: shared (15), API (22), web (20)
 npm run typecheck
-npm run build     # typechecks the API, builds the web bundle
+npm run build
 ```
 
-Tests use a separate SQLite file (`apps/api/prisma/test.db`) and a frozen clock, so they never touch dev data and do not depend on today's date.
+Tests run against a dedicated SQLite file with a frozen clock, so they are deterministic and never touch the development data. To reset the demo data: `npm run db:seed -w @inventory/api`.
 
-### Reset the demo data
+### What the tests cover
 
-```bash
-npm run db:seed -w @inventory/api
-```
+- **Aging rule**: exactly 90 days is not aging, 91 days is; derived age; timezone independence.
+- **Filtering and listing**: make, model, inclusive age range, aging-only, VIN search, sorting, pagination, dealership isolation, validation errors (400) and unknown dealership (404).
+- **Summary**: aging count, percentage and value, age buckets, actions-outstanding count, empty dealership.
+- **Actions**: persisted on aging vehicles; rejected with 422 on non-aging ones with nothing stored; append-only history with the newest as current status; body validation.
+- **Operations**: health, readiness, metrics, request-id propagation, OpenAPI document.
+- **UI**: aging rows flagged, Manage only offered for aging vehicles, filter behaviour, an action being POSTed, server errors surfaced to the user, API-down state.
 
 ## Repository layout
 
 ```
-apps/api         Fastify API, Prisma schema + seed, service layer, tests
+apps/api         Fastify API, Prisma schema and seed, service layer, integration tests
 apps/web         React + Vite + Tailwind dashboard, component tests
-packages/shared  Aging rule (90 days) + Zod contract used by both apps
+packages/shared  Aging rule (90 days) and Zod contract shared by both apps
 docs/            System design document
 ```
 
-## API examples (cURL)
-
-```bash
-B=http://localhost:3001
-
-# Dealerships
-curl -s $B/api/dealerships
-
-# KPIs: totals, aging count/value, age buckets, filter options
-curl -s $B/api/dealerships/dealer-london/inventory/summary
-
-# Aging Ford stock, oldest first, 10 per page
-curl -s "$B/api/dealerships/dealer-london/vehicles?make=Ford&aging=true&pageSize=10"
-
-# Age range 30-60 days, search by VIN fragment
-curl -s "$B/api/dealerships/dealer-london/vehicles?minAge=30&maxAge=60&q=WVW"
-
-# Log an action on an aging vehicle (use an id from the list above)
-curl -s -X POST $B/api/vehicles/<VEHICLE_ID>/actions \
-  -H 'content-type: application/json' \
-  -d '{"actionType":"PRICE_REDUCTION_PLANNED","note":"Drop 5% at month end","createdBy":"alex"}'
-# Same call on a vehicle <= 90 days old returns 422 RULE_VIOLATION
-```
+## API
 
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/dealerships` | List dealerships |
 | `GET /api/dealerships/:id/vehicles` | Filter: `make`, `model`, `q`, `minAge`, `maxAge`, `aging`. Sort: `sort`, `order`. Paging: `page`, `pageSize` (max 100) |
-| `GET /api/dealerships/:id/inventory/summary` | KPIs, age buckets, make/model options |
-| `GET /api/vehicles/:id` | Vehicle with full action history |
-| `POST /api/vehicles/:id/actions` | Log an action (aging vehicles only, else 422) |
-| `GET /health`, `/ready`, `/metrics`, `/docs` | Liveness, readiness (checks DB), Prometheus metrics, OpenAPI UI |
+| `GET /api/dealerships/:id/inventory/summary` | KPIs, age buckets, make and model options |
+| `GET /api/vehicles/:id` | A vehicle with its full action history |
+| `POST /api/vehicles/:id/actions` | Log an action (aging vehicles only, otherwise 422) |
+| `GET /health`, `/ready`, `/metrics`, `/docs` | Liveness, readiness (checks the DB), Prometheus metrics, OpenAPI UI |
 
 Action types: `PRICE_REDUCTION_PLANNED`, `PRICE_REDUCED`, `MARKETING_PUSH`, `TRANSFER_PLANNED`, `AUCTION_PLANNED`, `HOLD`, `SOLD`.
 
-## Key decisions and assumptions
+```bash
+B=http://localhost:3001
 
-- **Aging = strictly more than 90 days** (90 is not aging, 91 is), counted in whole UTC days.
-- **Age is derived, never stored.** Age filters become an indexed range on `stockedAt`, so the data is always correct and no nightly job is needed.
-- **The aging rule is enforced server-side** (422), not only hidden in the UI.
-- **Actions are append-only history**; the newest is the current status.
-- "Real-time" = refetch on focus + 30 s polling. No auth (single trusted manager). See the design doc for the full list of assumptions and known limitations.
+curl -s $B/api/dealerships/dealer-london/inventory/summary
+curl -s "$B/api/dealerships/dealer-london/vehicles?make=Ford&aging=true&pageSize=10"
 
-## Troubleshooting
+# Log an action on an aging vehicle (take an id from the list above)
+curl -s -X POST $B/api/vehicles/<VEHICLE_ID>/actions \
+  -H 'content-type: application/json' \
+  -d '{"actionType":"PRICE_REDUCTION_PLANNED","note":"Drop 5% at month end","createdBy":"alex"}'
+# The same call on a vehicle of 90 days or less returns 422 RULE_VIOLATION
+```
 
-- **Tests fail with `require() of ES Module ... cookie`**: `light-my-request` is pinned to 6.6.0 via the root `overrides` for Node 20.11 compatibility. If you removed it, restore it or use Node >= 20.19.
-- **UI says "Could not load data"**: the API is not reachable. Check it is running and that `API_URL` matches its port.
+## Key design decisions and assumptions
+
+The brief leaves some points open. These are the assumptions made; the full list is in the [design document](docs/SYSTEM_DESIGN.md).
+
+- **Aging means strictly more than 90 days** (90 is not aging, 91 is), counted in whole UTC days.
+- **Age is derived, never stored.** Age filters become an indexed range on `stockedAt`, so results are always correct and no nightly job is needed.
+- **The aging rule is enforced on the server** (422), not only hidden in the UI, and lives in one shared function used by both apps.
+- **Actions are append-only history**, giving an audit trail; the newest entry is the current status.
+- **"Real-time"** means refetch on window focus plus 30-second polling. Server push is documented as the next step.
+- **No authentication.** The manager name is a free-text field. Production would take it from the auth token.
+
+### Built for the future
+
+- **Scalability**: a stateless API, database-side filtering and pagination, indexes matching the query patterns, and a Prisma schema that moves to Postgres by changing the provider and `DATABASE_URL`.
+- **Reliability**: input validation at the edge, graceful shutdown, a readiness probe, and append-only writes.
+- **Maintainability**: strict TypeScript, a shared contract package, business rules isolated in a service with an injectable clock, and OpenAPI generated from the same schemas the code uses.
+- **Observability**: structured JSON logs correlated by request id, Prometheus metrics (latency per route template and business counters), and health endpoints. Distributed tracing is designed but not built.
+
+### Known limitations
+
+No authentication; polling rather than push; the summary endpoint aggregates one dealership's stock in memory (fine at this scale, to be moved to SQL aggregation); tracing not implemented; no Docker setup, CI, or browser end-to-end tests. `npm audit` reports advisories in Zod and `@fastify/static` that require breaking major upgrades; these are detailed in the design document. `light-my-request` is pinned to 6.6.0 via `overrides` because 6.8 depends on an ESM-only `cookie` that breaks on Node 20.11 (not needed on Node 20.19 or later).
 
 ## AI Collaboration Narrative
 
-> **Author's note:** this section describes what actually happened in the build session (Claude Code directed by me). Edit it so it reflects your own involvement before submitting.
+This project was built with Claude Code as the implementation agent, directed and reviewed by me.
 
 **Strategy for guiding the AI.**
-I did not ask for "the app". I started from the brief and had the AI turn it into a written plan *before any code*: the three testable requirements, the ambiguities, a stack and the trade-offs. I approved that plan, and the AI then worked in small, committed phases: scaffold, shared contract and business rule, API, frontend, then docs. The business rule (aging = more than 90 days) was put in one shared package first, with tests, so everything else was built on a verified foundation. I made the key calls: fullstack in TypeScript, and "age is derived, not stored".
+I had the AI turn the brief into a written plan before any code: the three testable requirements, the ambiguities, a stack, and the trade-offs. I approved that plan and made the key decisions: a fullstack TypeScript build, and deriving age from `stockedAt` rather than storing it. Work then went in small, committed phases: scaffold, shared contract and business rule, API, frontend, documentation. The 90-day rule was implemented and tested first in a shared package, so everything else was built on a verified foundation.
 
-**How I verified and refined the output.**
-- **Tests first on the rules that matter**: the 90/91-day boundary, filters, the 422 rule, append-only history, and per-dealership isolation, all with a frozen clock.
-- **I did not trust "all green"**: I ran a mutation check, deliberately breaking the core rule (threshold 90 to 100, and `>` to `>=`). The suites failed as they should (6 and 3 failing tests respectively), proving the tests detect the exact bugs that would matter. The code was then restored.
-- **Ran it for real, not just tests**: smoke-tested the API with cURL, then drove the UI in a browser (filter by make, aging only, open a vehicle, log an action) and confirmed the row status and KPI changed *and* the row existed in SQLite.
-- **Typecheck and a strict TypeScript config** across all three packages.
+**How I verified and refined its output.**
+- **Tests on the rules that matter**, using a frozen clock: the 90/91-day boundary, filters, the 422 rule, append-only history, and per-dealership isolation.
+- **Mutation check**: I did not treat a green suite as proof. I deliberately broke the core rule (threshold 90 to 100, and `>` to `>=`) and confirmed the suites failed (6 and 3 failing tests respectively), then restored the code.
+- **Real execution**: I smoke-tested the API with cURL and drove the UI in a browser (filter, open a vehicle, log an action), confirming that the row status and the KPI changed and that the record existed in SQLite.
+- **Clean-clone check**: from a fresh clone, `npm run setup`, `npm test` and `npm run build` all pass. This caught a real bug (a missing `.env` broke first-time setup), which is now fixed.
 
-**Where the AI was wrong, and how it was caught** (real events from this build):
-1. *Dependency/runtime mismatch.* All 22 API tests failed at first: the newest `light-my-request` pulls an ESM-only `cookie`, which Node 20.11 cannot `require()`. Two plausible fixes failed (a nested override, then a direct dependency) before pinning `light-my-request` to 6.6.0. The reason is documented next to the override.
-2. *Two bugs in the AI's own tests.* A numeric `.sort()` that sorted as strings (`200` before `91`), and a Prometheus counter assertion that ignored counters are cumulative across tests. In both cases the code was right and the test was wrong; I fixed the tests rather than loosening them.
-3. *Environment collision.* Port 3001 was already used by an unrelated project. The AI did not kill the process; it made the Vite proxy target configurable (`API_URL`) and ran on another port.
-4. *Overstated narrative.* An earlier draft of the design doc's GenAI section described human actions that had not happened. It was corrected so the documentation matches reality.
-5. *Security hygiene.* `npm audit` flagged advisories. Non-breaking fixes were applied where available; the remaining ones need major upgrades and are listed honestly in the design doc rather than force-upgraded blindly.
+**Where the AI got things wrong, and how it was caught.**
+1. *Dependency mismatch.* All 22 API tests initially failed because the latest `light-my-request` pulls an ESM-only dependency that Node 20.11 cannot `require()`. Two plausible fixes failed before pinning the version, and the reason is documented next to the override.
+2. *Two defects in its own tests.* One sorted numbers as strings; another assumed a Prometheus counter started at zero although counters accumulate. The application code was right in both cases, so I corrected the tests rather than weakening them.
+3. *Environment collision.* Port 3001 was occupied by an unrelated process. The AI left it alone and made the proxy target configurable.
+4. *Documentation drift.* A draft of the design document described actions that had not happened. It was corrected so the documentation matches what was built.
+5. *Security hygiene.* `npm audit` findings were fixed where a non-breaking fix existed. The rest need major upgrades and are listed openly rather than force-upgraded blindly.
 
-**How I ensured final quality.**
-57 automated tests (shared 15, API 22, web 20), a clean typecheck, a manual end-to-end browser check, small reviewable commits per phase, and a design doc that lists what the system does *not* do (no auth, polling not push, tracing only designed). I can explain every part of the code, including the trade-offs above.
+**How I ensured the final quality.**
+57 automated tests, a clean strict-TypeScript typecheck across all packages, a manual end-to-end browser check, a verified clean-clone build, small commits per phase, and documentation that states what the system does not do.
